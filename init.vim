@@ -7,6 +7,8 @@
 :set softtabstop=4
 :set mouse=a
 
+nnoremap <Space> :
+
 let mapleader = " "
 nnoremap <Leader>pv :Ex<CR>
 nnoremap <Leader>gp "+p
