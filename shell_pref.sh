@@ -2,42 +2,33 @@
 set -euo pipefail
 
 # ===============================================
-# Cross-distro zsh + powerlevel10k + fzf + Kitty
-# with Windows-style copy/paste and smart history
-# Supports Debian/Ubuntu/Mint, Arch/Manjaro, Fedora/RHEL family
+# Minimal, sane zsh + powerlevel10k + autosuggestions (HISTORY ONLY)
+# + fzf (Ctrl-R) + Kitty with Windows-style copy/paste
+# Cross-distro: Debian/Ubuntu/Mint, Arch/Manjaro, Fedora/RHEL
+# No popup completion frameworks. No word/line delete hacks.
 # ===============================================
 
 # ---------- detect distro family ----------
 if [ -r /etc/os-release ]; then . /etc/os-release; else echo "Cannot detect distro. /etc/os-release missing." >&2; exit 1; fi
-
 family=""
 case "${ID_LIKE:-$ID}" in
-  *debian*|*ubuntu*|*linuxmint*|*lmde*)        family="apt" ;;
-  *arch*|*manjaro*|*endeavouros*|*arco*|*artix*) family="pacman" ;;
-  *fedora*|*rhel*|*centos*|*rocky*|*alma*)     family="dnf" ;;
+  *debian*|*ubuntu*|*linuxmint*|*lmde*)             family="apt" ;;
+  *arch*|*manjaro*|*endeavouros*|*arco*|*artix*)    family="pacman" ;;
+  *fedora*|*rhel*|*centos*|*rocky*|*alma*)          family="dnf" ;;
 esac
 [ -n "$family" ] || { echo "Unsupported distro family. Need Debian/Arch/Fedora derivative."; exit 1; }
 
-# ---------- sanity ----------
 command -v sudo >/dev/null || { echo "This script needs sudo."; exit 1; }
 
 # ---------- packages ----------
-# Keep names exact per family
 apt_pkgs=(zsh git curl unzip fontconfig fzf ripgrep bat fd-find zoxide zsh-autosuggestions zsh-syntax-highlighting kitty)
 pacman_pkgs=(zsh git curl unzip fontconfig fzf ripgrep bat fd zoxide zsh-autosuggestions zsh-syntax-highlighting kitty)
 dnf_pkgs=(zsh git curl unzip fontconfig fzf ripgrep bat fd-find zoxide zsh-autosuggestions zsh-syntax-highlighting kitty)
 
 case "$family" in
-  apt)
-    sudo apt update
-    sudo apt install -y "${apt_pkgs[@]}"
-    ;;
-  pacman)
-    sudo pacman -Sy --noconfirm --needed "${pacman_pkgs[@]}"
-    ;;
-  dnf)
-    sudo dnf -y install "${dnf_pkgs[@]}"
-    ;;
+  apt)    sudo apt update; sudo apt install -y "${apt_pkgs[@]}";;
+  pacman) sudo pacman -Sy --noconfirm --needed "${pacman_pkgs[@]}";;
+  dnf)    sudo dnf -y install "${dnf_pkgs[@]}";;
 esac
 
 # ---------- Debian/Ubuntu quirks ----------
@@ -57,7 +48,7 @@ cd - >/dev/null
 # ---------- powerlevel10k ----------
 [ -d "$HOME/.p10k" ] || git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$HOME/.p10k"
 
-# ---------- find fzf keybindings path (varies by distro) ----------
+# ---------- locate fzf keybindings ----------
 FZF_BINDINGS=""
 for candidate in \
   /usr/share/doc/fzf/examples/key-bindings.zsh \
@@ -67,48 +58,42 @@ do
   [ -f "$candidate" ] && FZF_BINDINGS="$candidate" && break
 done
 
-# ---------- write .zshrc ----------
+# ---------- .zshrc (history-only ghost text; no popups) ----------
 ZSHRC="$HOME/.zshrc"
 cp -f "$ZSHRC" "$ZSHRC.bak.$(date +%s)" 2>/dev/null || true
-
 cat > "$ZSHRC" <<'ZRC'
-# ===== PATH fixes for Debian names =====
+# ===== PATH fixes =====
 export PATH="$HOME/.local/bin:$PATH"
 
-# ===== history: useful, shared, not dumb =====
+# ===== history =====
 HISTFILE="$HOME/.zsh_history"
 HISTSIZE=500000
 SAVEHIST=500000
 setopt HIST_IGNORE_ALL_DUPS HIST_FIND_NO_DUPS HIST_REDUCE_BLANKS HIST_VERIFY
 setopt INC_APPEND_HISTORY SHARE_HISTORY EXTENDED_HISTORY
 
-# ===== completion: fast and not annoying =====
+# ===== completion base (no popup frameworks) =====
 autoload -U compinit; compinit -u
 zmodload zsh/complist
 setopt MENU_COMPLETE AUTO_MENU COMPLETE_IN_WORD
-# case-insensitive, smart separators
 zstyle ':completion:*' matcher-list 'm:{a-z}={A-Za-z}' 'r:|[._-]=* r:|=*'
-# show descriptions and group results
-zstyle ':completion:*' verbose yes
 zstyle ':completion:*' group-name ''
-# colorize completion using LS_COLORS
+zstyle ':completion:*' verbose yes
 zstyle ':completion:*:default' list-colors ${(s.:.)LS_COLORS}
 
-# ===== quality-of-life =====
-setopt AUTO_CD AUTO_PUSHD PUSHD_SILENT PUSHD_IGNORE_DUPS
-setopt EXTENDED_GLOB
+# ===== QoL =====
+setopt AUTO_CD AUTO_PUSHD PUSHD_SILENT PUSHD_IGNORE_DUPS EXTENDED_GLOB
 bindkey -e
-
-# Make word boundaries sane for paths/flags: keep _ in words; treat /. - as separators
+# sane word boundaries for paths/flags (no deletes remapped)
 WORDCHARS='*?[]~=&;!#$%^(){}<>'
 
-# ===== plugins =====
+# ===== autosuggestions: HISTORY ONLY, ghost text =====
 if [ -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then
   source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
-  ZSH_AUTOSUGGEST_STRATEGY=(history completion)
-fi
-if [ -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]; then
-  source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+  ZSH_AUTOSUGGEST_STRATEGY=(history)          # <- history only
+  ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=0           # no truncation
+  bindkey '^[[C' autosuggest-accept           # Right Arrow accepts
+  bindkey '^F'   autosuggest-accept           # Ctrl-F also accepts
 fi
 
 # ===== fzf (Ctrl-R history, Ctrl-T files) =====
@@ -123,7 +108,7 @@ export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
 export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
 export FZF_DEFAULT_OPTS='--height 40% --layout=reverse --border'
 
-# ===== zoxide (better cd) =====
+# ===== zoxide =====
 eval "$(zoxide init zsh)"
 
 # ===== modern defaults =====
@@ -141,48 +126,32 @@ alias grep='rg --hidden --smart-case'
 source "$HOME/.p10k/powerlevel10k.zsh-theme"
 [[ -r "$HOME/.p10k.zsh" ]] && source "$HOME/.p10k.zsh"
 
-# ===== keybindings that should be default =====
-# Up/Down: prefix-aware history search (built-ins, no autoload drama)
+# ===== keybindings you actually expect (non-destructive) =====
+# Up/Down: prefix-aware history
 bindkey '^[[A' history-search-backward
 bindkey '^[[B' history-search-forward
-
 # Home/End
 bindkey '^[[H' beginning-of-line
 bindkey '^[[F' end-of-line
-
-# Word-wise navigation across common escape sequences
-bindkey '^[\[1;5D' backward-word   # Ctrl+Left
-bindkey '^[\[1;5C' forward-word    # Ctrl+Right
-bindkey '^[b'      backward-word   # Alt+b fallback
-bindkey '^[f'      forward-word    # Alt+f fallback
-bindkey '^[\[1;3D' backward-word   # Alt+Left
-bindkey '^[\[1;3C' forward-word    # Alt+Right
-
-# Kill words like modern editors
-bindkey '^[d'      kill-word                 # Alt+d
-bindkey '^H'       backward-kill-word        # Ctrl+Backspace (common)
-bindkey '^?'       backward-kill-word        # Backspace-as-DEL variant
-bindkey '^[\[3;5~' kill-word                 # Ctrl+Delete
-bindkey '^[\[3~'   delete-char               # Delete
-
-# Yank (paste) convenience
-bindkey '^Y' yank
+# Word-wise nav (requested PowerShell-style)
+bindkey '^[\[1;5D' backward-word     # Ctrl+Left
+bindkey '^[\[1;5C' forward-word      # Ctrl+Right
+bindkey '^[b'      backward-word     # Alt+b fallback
+bindkey '^[f'      forward-word      # Alt+f fallback
 ZRC
 
 # ---------- make zsh default ----------
 if [ "$SHELL" != "$(command -v zsh)" ]; then chsh -s "$(command -v zsh)"; fi
 
-# ---------- Kitty config: Windows-style ergonomics, pretty, dark ----------
+# ---------- Kitty config: Windows-style copy/paste; dark; no titlebar hacks ----------
 mkdir -p "$HOME/.config/kitty"
 cat > "$HOME/.config/kitty/kitty.conf" <<'KCFG'
-# Font
 font_family      MesloLGS Nerd Font
 font_size        13.0
 bold_font        auto
 italic_font      auto
 bold_italic_font auto
 
-# Window & aesthetics
 hide_window_decorations no
 window_padding_width 10
 background_opacity 0.9
@@ -192,11 +161,11 @@ copy_on_select yes
 strip_trailing_spaces smart
 mouse_hide_wait_interval 0.5
 
-# Right-click paste, middle-click primary selection
+# Right-click paste, middle-click primary selection paste
 paste_on_middle_click yes
 map right_click paste_from_clipboard
 
-# Ctrl+V pastes; Ctrl+C copies selection or sends SIGINT if none
+# Ctrl+V paste, Ctrl+C copies if selection else SIGINT
 map ctrl+v paste_from_clipboard
 map ctrl+shift+v paste_from_selection
 map ctrl+c copy_or_interrupt
@@ -230,12 +199,5 @@ color14 #a4ffff
 color15 #ffffff
 KCFG
 
-# ---------- fzf bind notice (optional info only) ----------
-if [ -n "$FZF_BINDINGS" ]; then
-  echo "fzf key bindings sourced from: $FZF_BINDINGS"
-fi
-
 echo
-echo "Done. Start a new Kitty or run: exec zsh"
-echo "• First zsh run opens Powerlevel10k wizard (choose lean/classic)."
-echo "• Up/Down do prefix history. Ctrl+Left/Right move by words. Ctrl+Backspace/Ctrl+Delete kill words."
+echo "Done. Restart terminal"
